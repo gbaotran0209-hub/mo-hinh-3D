@@ -1,0 +1,6 @@
+{
+  "name": "GeneCraft 3D - Khám Phá Cấu Trúc DNA & Đột Biến Gen",
+  "description": "Mô phỏng 3D tương tác sinh học phân tử: Khám phá chi tiết cấu trúc chuỗi xoắn kép DNA, các dạng đột biến gen, cơ chế sửa sai và giải mã di truyền theo chuẩn khoa học.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
