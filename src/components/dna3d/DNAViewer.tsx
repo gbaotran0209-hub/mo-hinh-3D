@@ -6,7 +6,8 @@ import { DNAViewMode, NucleotideType, BasePairData, RenderStyle, HelixForm, Sphe
 import { NUCLEOTIDES_SGK } from '../../data/geneticsData';
 import { PDB_1BNA_ATOMS, PDB_1BNA_BONDS, PDB_1BNA_BASEPAIRS, PDBAtom } from '../../data/pdb1bna';
 import { soundFx } from '../../utils/soundEffects';
-import { RefreshCw, Sparkles, Eye, EyeOff } from 'lucide-react';
+import { RefreshCw, Sparkles, Eye, EyeOff, Play, Pause, FastForward, Activity, BookOpen, Zap } from 'lucide-react';
+import { DNAPolymeraseModel, PolymeraseTelemetry } from './DNAPolymerase3D';
 
 interface DNAViewerProps {
   viewMode: DNAViewMode;
@@ -25,6 +26,13 @@ interface DNAViewerProps {
   explodedFactor: number;
   onSelectBasePair: (basePair: BasePairData, selectedBase: NucleotideType, strand: 1 | 2) => void;
   selectedPairIndex: number | null;
+  polymeraseActive?: boolean;
+  onTogglePolymerase?: () => void;
+  polymeraseSpeed?: number;
+  onChangePolymeraseSpeed?: (speed: number) => void;
+  onOpenPolymeraseWalkthrough?: () => void;
+  laserScannerActive?: boolean;
+  onToggleLaserScanner?: () => void;
 }
 
 // Generate circular letter badge texture for A, T, G, C, X
@@ -143,6 +151,13 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
   explodedFactor,
   onSelectBasePair,
   selectedPairIndex,
+  polymeraseActive = false,
+  onTogglePolymerase,
+  polymeraseSpeed = 2.0,
+  onChangePolymeraseSpeed,
+  onOpenPolymeraseWalkthrough,
+  laserScannerActive = true,
+  onToggleLaserScanner,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -150,6 +165,10 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
   const controlsRef = useRef<OrbitControls | null>(null);
   const dnaGroupRef = useRef<THREE.Group | null>(null);
+  const polymeraseRef = useRef<DNAPolymeraseModel | null>(null);
+  const polymeraseProgressRef = useRef<number>(0);
+  const laserScannerRef = useRef<THREE.Group | null>(null);
+  const basePairPositionsRef = useRef<{ posA: THREE.Vector3; posB: THREE.Vector3; baseA: NucleotideType; baseB: NucleotideType }[]>([]);
   const particlesRef = useRef<THREE.Points | null>(null);
   const interactiveObjectsRef = useRef<THREE.Mesh[]>([]);
   const animFrameRef = useRef<number | null>(null);
@@ -164,7 +183,27 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
   const useVietnameseXRef = useRef(useVietnameseX);
   useVietnameseXRef.current = useVietnameseX;
 
+  const polymeraseActiveRef = useRef(polymeraseActive);
+  polymeraseActiveRef.current = polymeraseActive;
+
+  const polymeraseSpeedRef = useRef(polymeraseSpeed);
+  polymeraseSpeedRef.current = polymeraseSpeed;
+
+  const laserScannerActiveRef = useRef(laserScannerActive);
+  laserScannerActiveRef.current = laserScannerActive;
+
   const [hoveredInfo, setHoveredInfo] = useState<string | null>(null);
+  const [isPolymerasePlaying, setIsPolymerasePlaying] = useState<boolean>(true);
+  const [polymeraseTelemetry, setPolymeraseTelemetry] = useState<PolymeraseTelemetry | null>(null);
+  const [scannedTelemetry, setScannedTelemetry] = useState<{
+    yPos: number;
+    bpIndex: number;
+    baseA: string;
+    baseB: string;
+    tmTemp: number;
+    deltaG: number;
+    hBonds: number;
+  } | null>(null);
 
   // Cached textures
   const textures = useMemo(() => {
@@ -352,12 +391,24 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
       clearcoat: 0.9,
     });
 
+    // Record central base pair positions for DNA Polymerase and telemetry
+    basePairPositionsRef.current = PDB_1BNA_BASEPAIRS.map((pair) => {
+      const posA = getTransformedVec3(pair.centerA.x, pair.centerA.y, pair.centerA.z, 'A', helixForm, 0, viewMode);
+      const posB = getTransformedVec3(pair.centerB.x, pair.centerB.y, pair.centerB.z, 'B', helixForm, 0, viewMode);
+      return {
+        posA,
+        posB,
+        baseA: pair.baseA as NucleotideType,
+        baseB: pair.baseB as NucleotideType,
+      };
+    });
+
     // ==========================================
     // 1. QUE & BI (BALL & STICK PDB MODEL)
-    // Sáng bóng, kim loại chrome, chuẩn IUPAC màu base nitơ & liên kết hydrogen
+    // Khung chrome thanh mảnh, hạt nguyên tử nhỏ gọn rõ lõi theo đúng yêu cầu người dùng
     // ==========================================
     if (renderStyle === 'ballstick') {
-      // 1. Draw 544 Covalent Bonds (Connecting Cylinders)
+      // 1. Draw Covalent Bonds - Khung chrome thanh mảnh (r = 0.040), phản chiếu kim loại cao
       for (const [idxA, idxB] of PDB_1BNA_BONDS) {
         const pA = atomPositions[idxA];
         const pB = atomPositions[idxB];
@@ -378,7 +429,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         const dist = pA.distanceTo(pB);
         if (dist > 3.0) continue; // Don't bridge exploded/unzipped strands
 
-        const bondGeo = new THREE.CylinderGeometry(0.065, 0.065, dist, 12);
+        const bondGeo = new THREE.CylinderGeometry(0.040, 0.040, dist, 12);
         const bondMesh = new THREE.Mesh(bondGeo, isMutated ? mutationHighlightMat : bondMat);
         bondMesh.position.copy(pA.clone().add(pB).multiplyScalar(0.5));
         bondMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pB.clone().sub(pA).normalize());
@@ -386,7 +437,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         dnaGroup.add(bondMesh);
       }
 
-      // 2. Draw 486 Atomic Spheres (sleek, polished jewel spheres)
+      // 2. Draw Atomic Spheres - Hạt nguyên tử gọn gàng, độ bóng jewel clearcoat
       for (let i = 0; i < PDB_1BNA_ATOMS.length; i++) {
         const atom = PDB_1BNA_ATOMS[i];
         const pos = atomPositions[i];
@@ -399,14 +450,14 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           (viewMode === 'mutation_substitute' && atom.resSeq === 6) ||
           (viewMode === 'mutation_uv_dimer' && (atom.resSeq === 7 || atom.resSeq === 8));
 
-        const r = atom.elem === 'P' ? 0.36 : 0.28;
+        const r = atom.elem === 'P' ? 0.25 : 0.18;
         const atomMeshGeo = new THREE.SphereGeometry(r, 16, 16);
 
         let mat: THREE.Material;
         if (isMutated) {
           mat = mutationHighlightMat;
-        } else if (sphereColorMode === 'sgk') {
-          // Chuẩn SGK: Phân biệt rõ Bazơ nitơ lõi & Khung xương đường-photphat
+        } else if (sphereColorMode === 'sgk' || sphereColorMode === 'iupac') {
+          // Chuẩn IUPAC: Phân biệt rõ Base nitơ lõi & Khung xương đường-phosphate
           const isBb = isBackboneAtom(atom);
           if (isBb) {
             mat = atom.name.startsWith('P') ? matPhosphate : (atom.chain === 'A' ? matBackboneA : matBackboneB);
@@ -451,15 +502,14 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         const posB = getTransformedVec3(pair.centerB.x, pair.centerB.y, pair.centerB.z, 'B', helixForm, explodedFactor, viewMode);
 
         if (showLabels) {
-          // Sprite billboard A (Always facing camera, no clipping)
           const spriteMatA = new THREE.SpriteMaterial({
             map: textures[baseA],
             transparent: true,
             depthTest: false,
           });
           const badgeA = new THREE.Sprite(spriteMatA);
-          badgeA.position.copy(posA).add(new THREE.Vector3(0, 0.45, 0));
-          badgeA.scale.set(1.35, 1.35, 1.35);
+          badgeA.position.copy(posA).add(new THREE.Vector3(0, 0.40, 0));
+          badgeA.scale.set(1.25, 1.25, 1.25);
           dnaGroup.add(badgeA);
 
           const spriteMatB = new THREE.SpriteMaterial({
@@ -468,12 +518,12 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
             depthTest: false,
           });
           const badgeB = new THREE.Sprite(spriteMatB);
-          badgeB.position.copy(posB).add(new THREE.Vector3(0, 0.45, 0));
-          badgeB.scale.set(1.35, 1.35, 1.35);
+          badgeB.position.copy(posB).add(new THREE.Vector3(0, 0.40, 0));
+          badgeB.scale.set(1.25, 1.25, 1.25);
           dnaGroup.add(badgeB);
         }
 
-        // Glowing Hydrogen Bonds between paired bases
+        // Glowing Hydrogen Bonds between paired bases (slender laser cylinders)
         if (viewMode !== 'replication_fork' || posA.y < 5) {
           const numBonds = (baseA === 'A' || baseA === 'T') ? 2 : 3;
           const dist = posA.distanceTo(posB);
@@ -481,12 +531,12 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           const mid = posA.clone().add(posB).multiplyScalar(0.5);
 
           for (let b = 0; b < numBonds; b++) {
-            const yOff = (b - (numBonds - 1) / 2) * 0.30;
-            const hGeo = new THREE.CylinderGeometry(0.045, 0.045, Math.max(0.4, dist - 1.2), 12);
+            const yOff = (b - (numBonds - 1) / 2) * 0.28;
+            const hGeo = new THREE.CylinderGeometry(0.032, 0.032, Math.max(0.4, dist - 0.9), 12);
             const hMesh = new THREE.Mesh(hGeo, new THREE.MeshStandardMaterial({
               color: '#ffffff',
               emissive: '#38bdf8',
-              emissiveIntensity: 0.85,
+              emissiveIntensity: 0.95,
             }));
             hMesh.position.copy(mid).add(new THREE.Vector3(0, yOff, 0));
             hMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), hBondDir);
@@ -498,31 +548,31 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
 
     // ==========================================
     // 2. KHÔNG GIAN (TRUE VAN DER WAALS CPK MODEL)
-    // Hạt nhỏ gọn, mật độ cao, phân biệt rõ khung xương & lõi bazơ để không bị rối mắt
+    // Tinh gọn, bề mặt phân tử mượt mà rõ rãnh lớn và rãnh nhỏ, không bị rối mắt
     // ==========================================
     else if (renderStyle === 'sphere') {
-      // Render all 486 primary atoms with compact, fine Van der Waals radii
+      // Render all 486 primary atoms with compact, calibrated Van der Waals radii
       for (let i = 0; i < PDB_1BNA_ATOMS.length; i++) {
         const atom = PDB_1BNA_ATOMS[i];
         const pos = atomPositions[i];
 
         if (viewMode === 'mutation_delete' && atom.resSeq === 10) {
-          continue; // Deleted
+          continue;
         }
 
         const isMutated =
           (viewMode === 'mutation_substitute' && atom.resSeq === 6) ||
           (viewMode === 'mutation_uv_dimer' && (atom.resSeq === 7 || atom.resSeq === 8));
 
-        const r = VDW_RADII[atom.elem] || 0.28;
+        const r = VDW_RADII[atom.elem] || 0.26;
         const geo = new THREE.SphereGeometry(r, 16, 16);
 
         let mat: THREE.Material = elementMaterials[atom.elem] || elementMaterials.C;
 
         if (isMutated) {
           mat = mutationHighlightMat;
-        } else if (sphereColorMode === 'sgk') {
-          // Chuẩn SGK: Phân biệt rõ Khung xương đường-photphat & Cặp bazơ nitơ lõi
+        } else if (sphereColorMode === 'sgk' || sphereColorMode === 'iupac') {
+          // Chuẩn IUPAC: Phân biệt rõ Khung xương đường-phosphate & Cặp base nitơ lõi
           const isBb = isBackboneAtom(atom);
           if (isBb) {
             if (atom.name.startsWith('P')) {
@@ -560,54 +610,6 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         interactiveObjectsRef.current.push(atomMesh);
       }
 
-      // Add high-density Van der Waals surface contact spheres along covalent bonds
-      // This produces the realistic "nhiều hạt hơn" (~900 compact glistening beads)
-      // and fills the inter-atomic crevices like true crystallographic molecular surfaces
-      const contactGeo = new THREE.SphereGeometry(0.20, 12, 12);
-      for (const [idxA, idxB] of PDB_1BNA_BONDS) {
-        const atomA = PDB_1BNA_ATOMS[idxA];
-        const atomB = PDB_1BNA_ATOMS[idxB];
-        if (!atomA || !atomB) continue;
-
-        if (viewMode === 'mutation_delete' && (atomA.resSeq === 10 || atomB.resSeq === 10)) {
-          continue;
-        }
-
-        const posA = atomPositions[idxA];
-        const posB = atomPositions[idxB];
-        if (!posA || !posB) continue;
-
-        const dist = posA.distanceTo(posB);
-        if (dist >= 1.25 && dist <= 1.7) {
-          const midPos = posA.clone().add(posB).multiplyScalar(0.5);
-
-          let beadMat: THREE.Material;
-          if (sphereColorMode === 'sgk') {
-            const isBbA = isBackboneAtom(atomA);
-            const isBbB = isBackboneAtom(atomB);
-            if (isBbA && isBbB) {
-              beadMat = (atomA.name.startsWith('P') || atomB.name.startsWith('P'))
-                ? matPhosphate
-                : (atomA.chain === 'A' ? matBackboneA : matBackboneB);
-            } else {
-              const baseType = atomA.resName.replace('D', '');
-              if (baseType === 'A') beadMat = matBaseA;
-              else if (baseType === 'T') beadMat = matBaseT;
-              else if (baseType === 'G') beadMat = matBaseG;
-              else beadMat = matBaseC;
-            }
-          } else if (sphereColorMode === 'strands') {
-            beadMat = atomA.chain === 'A' ? matStrandAOnly : matStrandBOnly;
-          } else {
-            beadMat = elementMaterials[atomA.elem] || elementMaterials.C;
-          }
-
-          const beadMesh = new THREE.Mesh(contactGeo, beadMat);
-          beadMesh.position.copy(midPos);
-          dnaGroup.add(beadMesh);
-        }
-      }
-
       // Letter badges visible on outer face without clipping
       if (showLabels) {
         for (const pair of PDB_1BNA_BASEPAIRS) {
@@ -621,13 +623,11 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           const bbA = getTransformedVec3(pair.backboneA.x, pair.backboneA.y, pair.backboneA.z, 'A', helixForm, explodedFactor, viewMode);
           const bbB = getTransformedVec3(pair.backboneB.x, pair.backboneB.y, pair.backboneB.z, 'B', helixForm, explodedFactor, viewMode);
 
-          // Calculate radial outward vector from central helical axis (along Y)
           const dirA = new THREE.Vector3(bbA.x, 0, bbA.z).normalize();
           const dirB = new THREE.Vector3(bbB.x, 0, bbB.z).normalize();
 
-          // Float cleanly outside the Van der Waals sphere radius
-          const outerPosA = bbA.clone().add(dirA.clone().multiplyScalar(1.5));
-          const outerPosB = bbB.clone().add(dirB.clone().multiplyScalar(1.5));
+          const outerPosA = bbA.clone().add(dirA.clone().multiplyScalar(1.3));
+          const outerPosB = bbB.clone().add(dirB.clone().multiplyScalar(1.3));
 
           const spriteMatA = new THREE.SpriteMaterial({
             map: textures[baseA],
@@ -636,7 +636,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           });
           const spriteA = new THREE.Sprite(spriteMatA);
           spriteA.position.copy(outerPosA);
-          spriteA.scale.set(1.4, 1.4, 1.4);
+          spriteA.scale.set(1.3, 1.3, 1.3);
           dnaGroup.add(spriteA);
 
           const spriteMatB = new THREE.SpriteMaterial({
@@ -646,7 +646,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           });
           const spriteB = new THREE.Sprite(spriteMatB);
           spriteB.position.copy(outerPosB);
-          spriteB.scale.set(1.4, 1.4, 1.4);
+          spriteB.scale.set(1.3, 1.3, 1.3);
           dnaGroup.add(spriteB);
         }
       }
@@ -654,25 +654,37 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
 
     // ==========================================
     // 3. DẢI (CARTOON / RIBBON MODEL)
-    // 2 dải gần lại với nhau theo yêu cầu, gắn kết liền mạch với bậc thang bazơ nitơ
+    // Tách 2 dải ra hai phía và giữ nguyên hệ thống bậc thang cặp base ở giữa theo yêu cầu người dùng!
     // ==========================================
     else if (renderStyle === 'cartoon') {
-      // Radial scale factor to bring the 2 ribbons close together as requested:
-      // Standard outer phosphate backbone is at radius ~10.2 Å.
-      // Scaling to 0.64 (radius ~6.5 Å) brings the 2 ribbon strands much closer together,
-      // creating an authentic, cohesive textbook double-helix ribbon!
-      const ribbonScale = ribbonTightness === 'close' ? 0.64 : 0.90;
+      const ribbonScale = ribbonTightness === 'close' ? 0.65 : 0.88;
 
       const ribbonPointsA: THREE.Vector3[] = [];
       const ribbonPointsB: THREE.Vector3[] = [];
 
-      // Calculate the 12 base-pair anchor points for Ribbon A and Ribbon B
-      for (const pair of PDB_1BNA_BASEPAIRS) {
-        const fullA = getTransformedVec3(pair.backboneA.x, pair.backboneA.y, pair.backboneA.z, 'A', helixForm, explodedFactor, viewMode);
-        const fullB = getTransformedVec3(pair.backboneB.x, pair.backboneB.y, pair.backboneB.z, 'B', helixForm, explodedFactor, viewMode);
+      // Calculate anchor points for Ribbon A and Ribbon B:
+      // When explodedFactor > 0: 2 dải tách xa hẳn ra hai phía khỏi phần ở giữa!
+      const explodeDistance = explodedFactor * 13.5; // Tách mạnh ra hai phía theo yêu cầu
 
-        const rPtA = new THREE.Vector3(fullA.x * ribbonScale, fullA.y, fullA.z * ribbonScale);
-        const rPtB = new THREE.Vector3(fullB.x * ribbonScale, fullB.y, fullB.z * ribbonScale);
+      for (const pair of PDB_1BNA_BASEPAIRS) {
+        // Base backbone positions without explode
+        const bbA = getTransformedVec3(pair.backboneA.x, pair.backboneA.y, pair.backboneA.z, 'A', helixForm, 0, viewMode);
+        const bbB = getTransformedVec3(pair.backboneB.x, pair.backboneB.y, pair.backboneB.z, 'B', helixForm, 0, viewMode);
+
+        // Direction radiating outward from central Y axis
+        const dirA = new THREE.Vector3(bbA.x, 0, bbA.z).normalize();
+        const dirB = new THREE.Vector3(bbB.x, 0, bbB.z).normalize();
+
+        const rPtA = new THREE.Vector3(
+          bbA.x * ribbonScale + dirA.x * explodeDistance,
+          bbA.y,
+          bbA.z * ribbonScale + dirA.z * explodeDistance
+        );
+        const rPtB = new THREE.Vector3(
+          bbB.x * ribbonScale + dirB.x * explodeDistance,
+          bbB.y,
+          bbB.z * ribbonScale + dirB.z * explodeDistance
+        );
 
         ribbonPointsA.push(rPtA);
         ribbonPointsB.push(rPtB);
@@ -701,13 +713,13 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
       // Continuous, elegant helical ribbons
       if (ribbonPointsA.length > 2) {
         const curveA = new THREE.CatmullRomCurve3(ribbonPointsA, false, 'centripetal');
-        const tubeGeoA = new THREE.TubeGeometry(curveA, 160, 0.60, 24, false);
+        const tubeGeoA = new THREE.TubeGeometry(curveA, 160, 0.58, 24, false);
         const tubeMeshA = new THREE.Mesh(tubeGeoA, ribbonMatA);
         tubeMeshA.castShadow = true;
         dnaGroup.add(tubeMeshA);
 
         // 5' and 3' terminal end-caps on Ribbon A
-        const capGeo = new THREE.SphereGeometry(0.68, 20, 20);
+        const capGeo = new THREE.SphereGeometry(0.65, 20, 20);
         const capA5 = new THREE.Mesh(capGeo, ribbonMatA);
         capA5.position.copy(ribbonPointsA[0]);
         dnaGroup.add(capA5);
@@ -719,13 +731,13 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
 
       if (ribbonPointsB.length > 2) {
         const curveB = new THREE.CatmullRomCurve3(ribbonPointsB, false, 'centripetal');
-        const tubeGeoB = new THREE.TubeGeometry(curveB, 160, 0.60, 24, false);
+        const tubeGeoB = new THREE.TubeGeometry(curveB, 160, 0.58, 24, false);
         const tubeMeshB = new THREE.Mesh(tubeGeoB, ribbonMatB);
         tubeMeshB.castShadow = true;
         dnaGroup.add(tubeMeshB);
 
         // 5' and 3' terminal end-caps on Ribbon B
-        const capGeo = new THREE.SphereGeometry(0.68, 20, 20);
+        const capGeo = new THREE.SphereGeometry(0.65, 20, 20);
         const capB5 = new THREE.Mesh(capGeo, ribbonMatB);
         capB5.position.copy(ribbonPointsB[ribbonPointsB.length - 1]);
         dnaGroup.add(capB5);
@@ -735,8 +747,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         dnaGroup.add(capB3);
       }
 
-      // Stepped transverse ladder rungs for base pairs:
-      // Spanning CONTINUOUSLY from Ribbon A all the way into Ribbon B!
+      // BẬC THANG CẶP BASE Ở GIỮA (GIỮ VỮNG VỊ TRÍ TRUNG TÂM THEO YÊU CẦU NGƯỜI DÙNG)
       for (let i = 0; i < PDB_1BNA_BASEPAIRS.length; i++) {
         const pair = PDB_1BNA_BASEPAIRS[i];
         if (viewMode === 'mutation_delete' && (pair.seqA === 10 || pair.seqB === 15)) {
@@ -746,58 +757,69 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         const baseA = pair.baseA as NucleotideType;
         const baseB = pair.baseB as NucleotideType;
 
-        const rPtA = ribbonPointsA[i];
-        const rPtB = ribbonPointsB[i];
+        // Vị trí neo trực tiếp trên 2 dải ruy-băng A và B
+        const anchorA = ribbonPointsA[i];
+        const anchorB = ribbonPointsB[i];
 
-        const chord = rPtB.clone().sub(rPtA);
-        const chordLen = chord.length();
-        const chordDir = chord.clone().normalize();
-        const mid = rPtA.clone().add(rPtB).multiplyScalar(0.5);
+        const spanVec = anchorB.clone().sub(anchorA);
+        const spanDist = spanVec.length();
+        const spanDir = spanVec.clone().normalize();
+        const midCore = anchorA.clone().add(anchorB).multiplyScalar(0.5);
 
-        // Hydrogen bond junction gap in the exact center
-        const hBondGap = 0.38;
-        const halfRungLen = Math.max(0.6, (chordLen - hBondGap) * 0.5);
+        const hBondGap = 0.40;
+        // Bậc thang tự động co giãn theo khoảng cách thực tế giữa 2 dải, ăn khớp 100% không bao giờ bị hở
+        const halfRungLen = Math.max(0.8, (spanDist - hBondGap) * 0.5);
 
-        // Half-rung A starts right at Ribbon A and extends inwards to the center
-        const centerHalfA = rPtA.clone().add(chordDir.clone().multiplyScalar(halfRungLen * 0.5));
-        // Half-rung B starts right at Ribbon B and extends inwards to the center
-        const centerHalfB = rPtB.clone().sub(chordDir.clone().multiplyScalar(halfRungLen * 0.5));
+        // Nửa bậc thang A neo từ dải A hướng vào tâm
+        const centerHalfA = anchorA.clone().add(spanDir.clone().multiplyScalar(halfRungLen * 0.5));
+        // Nửa bậc thang B neo từ dải B hướng vào tâm
+        const centerHalfB = anchorB.clone().sub(spanDir.clone().multiplyScalar(halfRungLen * 0.5));
 
-        const boxGeoA = new THREE.BoxGeometry(0.92, 0.40, halfRungLen);
+        const boxGeoA = new THREE.BoxGeometry(0.88, 0.36, halfRungLen);
         const boxMatA = new THREE.MeshPhysicalMaterial({
-          color: baseA === 'A' ? '#10b981' : baseA === 'T' ? '#ef4444' : baseA === 'G' ? '#f59e0b' : '#06b6d4',
+          color: baseA === 'A' ? '#10b981' : baseA === 'T' ? '#ef4444' : baseA === 'G' ? '#f59e0b' : '#0ea5e9',
           roughness: 0.14,
           metalness: 0.2,
           clearcoat: 0.9,
-          emissive: baseA === 'A' ? '#047857' : baseA === 'T' ? '#b91c1c' : baseA === 'G' ? '#b45309' : '#0369a1',
-          emissiveIntensity: 0.12,
+          emissive: baseA === 'A' ? '#047857' : baseA === 'T' ? '#b91c1c' : baseA === 'G' ? '#b45309' : '#0284c7',
+          emissiveIntensity: 0.14,
         });
         const boxA = new THREE.Mesh(boxGeoA, boxMatA);
         boxA.position.copy(centerHalfA);
-        boxA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), chordDir);
+        boxA.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), spanDir);
         boxA.castShadow = true;
         boxA.userData = { baseType: baseA, resSeq: pair.seqA, chain: 'A' };
         dnaGroup.add(boxA);
         interactiveObjectsRef.current.push(boxA);
 
-        const boxGeoB = new THREE.BoxGeometry(0.92, 0.40, halfRungLen);
+        const boxGeoB = new THREE.BoxGeometry(0.88, 0.36, halfRungLen);
         const boxMatB = new THREE.MeshPhysicalMaterial({
-          color: baseB === 'A' ? '#10b981' : baseB === 'T' ? '#ef4444' : baseB === 'G' ? '#f59e0b' : '#06b6d4',
+          color: baseB === 'A' ? '#10b981' : baseB === 'T' ? '#ef4444' : baseB === 'G' ? '#f59e0b' : '#0ea5e9',
           roughness: 0.14,
           metalness: 0.2,
           clearcoat: 0.9,
-          emissive: baseB === 'A' ? '#047857' : baseB === 'T' ? '#b91c1c' : baseB === 'G' ? '#b45309' : '#0369a1',
-          emissiveIntensity: 0.12,
+          emissive: baseB === 'A' ? '#047857' : baseB === 'T' ? '#b91c1c' : baseB === 'G' ? '#b45309' : '#0284c7',
+          emissiveIntensity: 0.14,
         });
         const boxB = new THREE.Mesh(boxGeoB, boxMatB);
         boxB.position.copy(centerHalfB);
-        boxB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), chordDir);
+        boxB.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), spanDir);
         boxB.castShadow = true;
         boxB.userData = { baseType: baseB, resSeq: pair.seqB, chain: 'B' };
         dnaGroup.add(boxB);
         interactiveObjectsRef.current.push(boxB);
 
-        // Letter badges for Model 3: Billboard sprites always facing camera!
+        // Mộng khớp phân tử (Socket Bezels) tại điểm tiếp giáp giữa ruy-băng và bậc thang
+        const socketGeo = new THREE.SphereGeometry(0.46, 16, 16);
+        const socketA = new THREE.Mesh(socketGeo, ribbonMatA);
+        socketA.position.copy(anchorA);
+        dnaGroup.add(socketA);
+
+        const socketB = new THREE.Mesh(socketGeo, ribbonMatB);
+        socketB.position.copy(anchorB);
+        dnaGroup.add(socketB);
+
+        // Letter badges for Model 3: Hover ngay phía trên các bậc thang
         if (showLabels) {
           const spriteMatA = new THREE.SpriteMaterial({
             map: textures[baseA],
@@ -805,8 +827,8 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
             depthTest: false,
           });
           const spriteA = new THREE.Sprite(spriteMatA);
-          spriteA.position.copy(centerHalfA).add(new THREE.Vector3(0, 0.48, 0));
-          spriteA.scale.set(1.3, 1.3, 1.3);
+          spriteA.position.copy(centerHalfA).add(new THREE.Vector3(0, 0.45, 0));
+          spriteA.scale.set(1.25, 1.25, 1.25);
           dnaGroup.add(spriteA);
 
           const spriteMatB = new THREE.SpriteMaterial({
@@ -815,24 +837,24 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
             depthTest: false,
           });
           const spriteB = new THREE.Sprite(spriteMatB);
-          spriteB.position.copy(centerHalfB).add(new THREE.Vector3(0, 0.48, 0));
-          spriteB.scale.set(1.3, 1.3, 1.3);
+          spriteB.position.copy(centerHalfB).add(new THREE.Vector3(0, 0.45, 0));
+          spriteB.scale.set(1.25, 1.25, 1.25);
           dnaGroup.add(spriteB);
         }
 
-        // Center glowing hydrogen bond bridge (2 for A=T, 3 for G≡X)
+        // Cầu nối liên kết Hydrogen phát sáng ở trung tâm (2 cho A=T, 3 cho G≡C)
         const numHbonds = (baseA === 'A' || baseA === 'T') ? 2 : 3;
         for (let b = 0; b < numHbonds; b++) {
           const yOff = (b - (numHbonds - 1) / 2) * 0.28;
-          const hGeo = new THREE.CylinderGeometry(0.065, 0.065, hBondGap * 0.9, 12);
+          const hGeo = new THREE.CylinderGeometry(0.048, 0.048, hBondGap * 0.95, 12);
           const hMat = new THREE.MeshStandardMaterial({
             color: '#ffffff',
             emissive: '#38bdf8',
-            emissiveIntensity: 0.9,
+            emissiveIntensity: 1.2,
           });
           const hMesh = new THREE.Mesh(hGeo, hMat);
-          hMesh.position.copy(mid).add(new THREE.Vector3(0, yOff, 0));
-          hMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), chordDir);
+          hMesh.position.copy(midCore).add(new THREE.Vector3(0, yOff, 0));
+          hMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), spanDir);
           dnaGroup.add(hMesh);
         }
       }
@@ -975,31 +997,96 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
     kickLight.position.set(0, 30, -30);
     scene.add(kickLight);
 
-    // Floating Atmospheric Bioluminescent Dust Particles
-    const particleCount = 180;
+    // Floating Atmospheric Bioluminescent Dust Particles (280 quantum particles with color variation)
+    const particleCount = 280;
     const particleGeo = new THREE.BufferGeometry();
     const particlePos = new Float32Array(particleCount * 3);
+    const particleColors = new Float32Array(particleCount * 3);
+    const colorPalette = [
+      new THREE.Color('#38bdf8'), // Sky Cyan
+      new THREE.Color('#10b981'), // Emerald
+      new THREE.Color('#fbbf24'), // Gold
+      new THREE.Color('#c084fc'), // Purple
+    ];
     for (let p = 0; p < particleCount * 3; p += 3) {
-      particlePos[p] = (Math.random() - 0.5) * 60;
-      particlePos[p + 1] = (Math.random() - 0.5) * 60;
-      particlePos[p + 2] = (Math.random() - 0.5) * 60;
+      particlePos[p] = (Math.random() - 0.5) * 65;
+      particlePos[p + 1] = (Math.random() - 0.5) * 65;
+      particlePos[p + 2] = (Math.random() - 0.5) * 65;
+      const c = colorPalette[Math.floor(Math.random() * colorPalette.length)];
+      particleColors[p] = c.r;
+      particleColors[p + 1] = c.g;
+      particleColors[p + 2] = c.b;
     }
     particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePos, 3));
+    particleGeo.setAttribute('color', new THREE.BufferAttribute(particleColors, 3));
     const particleMat = new THREE.PointsMaterial({
-      color: '#38bdf8',
-      size: 0.45,
+      size: 0.52,
       transparent: true,
-      opacity: 0.6,
+      opacity: 0.75,
       blending: THREE.AdditiveBlending,
+      vertexColors: true,
     });
     const particles = new THREE.Points(particleGeo, particleMat);
     scene.add(particles);
     particlesRef.current = particles;
 
+    // Bio-Laser Scanner Scanning Plane
+    const laserScannerGroup = new THREE.Group();
+    laserScannerGroup.visible = laserScannerActiveRef.current;
+
+    // 1. Semi-transparent laser scanning disk
+    const scanPlaneGeo = new THREE.CircleGeometry(16, 48);
+    const scanPlaneMat = new THREE.MeshBasicMaterial({
+      color: '#06b6d4',
+      transparent: true,
+      opacity: 0.12,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const scanPlane = new THREE.Mesh(scanPlaneGeo, scanPlaneMat);
+    scanPlane.rotation.x = Math.PI / 2;
+    laserScannerGroup.add(scanPlane);
+
+    // 2. High-intensity outer perimeter laser beam ring
+    const beamRingGeo = new THREE.TorusGeometry(16, 0.08, 8, 48);
+    const beamRingMat = new THREE.MeshBasicMaterial({
+      color: '#22d3ee',
+      transparent: true,
+      opacity: 0.88,
+    });
+    const beamRing = new THREE.Mesh(beamRingGeo, beamRingMat);
+    beamRing.rotation.x = Math.PI / 2;
+    laserScannerGroup.add(beamRing);
+
+    // 3. Inner focal scanning ring
+    const innerRingGeo = new THREE.TorusGeometry(4.2, 0.07, 8, 36);
+    const innerRingMat = new THREE.MeshBasicMaterial({
+      color: '#10b981',
+      transparent: true,
+      opacity: 0.95,
+    });
+    const innerRing = new THREE.Mesh(innerRingGeo, innerRingMat);
+    innerRing.rotation.x = Math.PI / 2;
+    laserScannerGroup.add(innerRing);
+
+    // 4. Center scanner light emitter
+    const laserLight = new THREE.PointLight('#06b6d4', 2.2, 16);
+    laserScannerGroup.add(laserLight);
+
+    scene.add(laserScannerGroup);
+    laserScannerRef.current = laserScannerGroup;
+
     // Group for DNA
     const dnaGroup = new THREE.Group();
     scene.add(dnaGroup);
     dnaGroupRef.current = dnaGroup;
+
+    // Phức Hệ Enzyme DNA Polymerase III Chuẩn Cấu Trúc Bậc 2 PDB
+    const polymerase = new DNAPolymeraseModel();
+    polymerase.group.visible = false;
+    scene.add(polymerase.group);
+    polymeraseRef.current = polymerase;
 
     // Build model immediately
     buildDNAModel();
@@ -1090,6 +1177,70 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
         particlesRef.current.rotation.y += 0.0008;
       }
 
+      // Cập nhật động học Phức Hệ DNA Polymerase III
+      if (polymeraseRef.current) {
+        if (polymeraseActiveRef.current) {
+          polymeraseRef.current.group.visible = true;
+          if (isPolymerasePlaying) {
+            polymeraseProgressRef.current += (polymeraseSpeedRef.current * 0.016);
+          }
+          const tNow = performance.now() * 0.001;
+          const tlm = polymeraseRef.current.update(
+            basePairPositionsRef.current,
+            polymeraseProgressRef.current,
+            tNow
+          );
+          if (Math.floor(tNow * 10) % 2 === 0) {
+            setPolymeraseTelemetry(tlm);
+          }
+        } else {
+          polymeraseRef.current.group.visible = false;
+        }
+      }
+
+      // Cập nhật Tia Laser Sinh Học Quét Phân Tử (Bio-Laser Scanner)
+      if (laserScannerRef.current) {
+        if (laserScannerActiveRef.current) {
+          laserScannerRef.current.visible = true;
+          const tNow = performance.now() * 0.001;
+          const laserY = Math.sin(tNow * 0.85) * 20.0;
+          laserScannerRef.current.position.y = laserY;
+          laserScannerRef.current.rotation.z += 0.005;
+
+          // Phát hiện cặp base đang được laser quét qua
+          if (basePairPositionsRef.current.length > 0) {
+            let closestIdx = 0;
+            let minDy = 999;
+            for (let i = 0; i < basePairPositionsRef.current.length; i++) {
+              const bpY = (basePairPositionsRef.current[i].posA.y + basePairPositionsRef.current[i].posB.y) * 0.5;
+              const dy = Math.abs(bpY - laserY);
+              if (dy < minDy) {
+                minDy = dy;
+                closestIdx = i;
+              }
+            }
+
+            if (minDy < 2.2 && Math.floor(tNow * 10) % 2 === 0) {
+              const bp = basePairPositionsRef.current[closestIdx];
+              const hBonds = (bp.baseA === 'A' || bp.baseA === 'T') ? 2 : 3;
+              const tm = (bp.baseA === 'G' || bp.baseA === 'C') ? 74.5 : 66.2;
+              const dG = (bp.baseA === 'G' || bp.baseA === 'C') ? -2.4 : -1.3;
+              setScannedTelemetry({
+                yPos: laserY,
+                bpIndex: closestIdx + 1,
+                baseA: bp.baseA,
+                baseB: bp.baseB,
+                tmTemp: tm,
+                deltaG: dG,
+                hBonds,
+              });
+            }
+          }
+        } else {
+          laserScannerRef.current.visible = false;
+        }
+      }
+
       renderer.render(scene, camera);
     };
 
@@ -1129,6 +1280,7 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
       window.removeEventListener('resize', handleWindowResize);
       dom.removeEventListener('pointermove', handlePointerMove);
       dom.removeEventListener('click', handleClick);
+      if (polymeraseRef.current) polymeraseRef.current.dispose();
       renderer.dispose();
     };
   }, []); // Run ONCE on mount
@@ -1332,70 +1484,185 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
             </div>
           )}
 
-          {/* Mục 3: Dải */}
-          <button
-            onClick={() => {
-              soundFx.playClick();
-              onChangeRenderStyle('cartoon');
-            }}
-            className={`w-full text-left px-3.5 py-2 rounded-xl border transition-all text-xs font-semibold flex items-center gap-2.5 cursor-pointer ${
-              renderStyle === 'cartoon'
-                ? 'bg-blue-600 text-white border-blue-400 shadow-md shadow-blue-500/30'
-                : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
-            }`}
-          >
-            <span className="text-base">🧬</span>
-            <span>3. Dải</span>
-          </button>
+          {/* Mục 4: Mô Phỏng Phức Hệ DNA Polymerase III */}
+          <div className="pt-1.5 border-t border-slate-800">
+            <button
+              onClick={() => {
+                soundFx.playClick();
+                onTogglePolymerase?.();
+              }}
+              className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all text-xs font-semibold flex items-center justify-between cursor-pointer ${
+                polymeraseActive
+                  ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white border-emerald-400 shadow-lg shadow-emerald-500/25 ring-1 ring-emerald-400'
+                  : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800 hover:border-slate-600'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="text-base">🧬</span>
+                <span>Enzyme DNA Polymerase III</span>
+              </div>
+              <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                polymeraseActive ? 'bg-emerald-950 text-emerald-300 border border-emerald-500' : 'bg-slate-900 text-slate-400 border border-slate-800'
+              }`}>
+                {polymeraseActive ? 'ĐANG CHẠY' : 'BẬT'}
+              </span>
+            </button>
 
-          {/* Sub-panel for 3. Dải */}
-          {renderStyle === 'cartoon' && (
-            <div className="p-2.5 bg-slate-950/90 border border-purple-500/30 rounded-xl flex flex-col gap-1.5 animate-fadeIn text-xs">
-              <div className="flex items-center justify-between text-[11px] text-slate-300">
-                <span className="font-semibold text-purple-400">Khoảng cách 2 dải:</span>
-                <button
-                  onClick={onToggleLabels}
-                  className={`text-[10px] px-2 py-0.5 rounded border transition-colors cursor-pointer ${
-                    showLabels
-                      ? 'bg-purple-950 border-purple-600 text-purple-300'
-                      : 'bg-slate-900 border-slate-700 text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {showLabels ? '👁️ Đang hiện nhãn' : '👁️ Đã ẩn nhãn'}
-                </button>
+            {/* Nút Khám Phá Hướng Dẫn Tương Tác 5'->3' & Okazaki */}
+            {onOpenPolymeraseWalkthrough && (
+              <button
+                onClick={() => {
+                  soundFx.playClick();
+                  onOpenPolymeraseWalkthrough();
+                }}
+                className="w-full mt-1.5 px-3 py-1.5 rounded-xl border border-emerald-500/40 bg-emerald-950/60 hover:bg-emerald-900/70 text-emerald-300 hover:text-white text-[11px] font-semibold flex items-center justify-between cursor-pointer transition-colors shadow-sm"
+              >
+                <span className="flex items-center gap-1.5">
+                  <BookOpen className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Hướng dẫn cơ chế 5'→3' & Okazaki</span>
+                </span>
+                <span className="text-[10px] bg-emerald-900 px-1.5 py-0.5 rounded text-emerald-300 font-mono">5 BƯỚC</span>
+              </button>
+            )}
+          </div>
+
+          {/* Mục 5: Tia Laser Sinh Học Quét Phân Tử */}
+          <div className="pt-1.5 border-t border-slate-800">
+            <button
+              onClick={() => {
+                soundFx.playClick();
+                onToggleLaserScanner?.();
+              }}
+              className={`w-full text-left px-3.5 py-2.5 rounded-xl border transition-all text-xs font-semibold flex items-center justify-between cursor-pointer ${
+                laserScannerActive
+                  ? 'bg-gradient-to-r from-cyan-900/80 to-blue-900/80 text-white border-cyan-400 shadow-lg shadow-cyan-500/25 ring-1 ring-cyan-400'
+                  : 'bg-slate-800/80 text-slate-300 border-slate-700 hover:bg-slate-800'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Zap className={`w-4 h-4 ${laserScannerActive ? 'text-cyan-400 animate-pulse' : 'text-slate-400'}`} />
+                <span>Tia Laser Quét Phân Tử</span>
               </div>
-              <div className="grid grid-cols-2 gap-1">
-                <button
-                  onClick={() => onChangeRibbonTightness?.('close')}
-                  className={`px-1 py-1 rounded text-[10px] font-semibold text-center transition-colors cursor-pointer ${
-                    ribbonTightness === 'close'
-                      ? 'bg-purple-600 text-white shadow-sm'
-                      : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                  }`}
-                  title="Hai dải áp sát chuẩn tỉ lệ B-DNA (RCSB PDB), nối liền khít với các bậc thang base nitơ"
-                >
-                  Gần nhau (Compact B-DNA)
-                </button>
-                <button
-                  onClick={() => onChangeRibbonTightness?.('wide')}
-                  className={`px-1 py-1 rounded text-[10px] font-semibold text-center transition-colors cursor-pointer ${
-                    ribbonTightness === 'wide'
-                      ? 'bg-purple-600 text-white shadow-sm'
-                      : 'bg-slate-900 text-slate-400 hover:text-white border border-slate-800'
-                  }`}
-                  title="Mở rộng khoảng cách 2 dải"
-                >
-                  Mở rộng
-                </button>
-              </div>
-            </div>
-          )}
+              <span className={`text-[10px] px-2 py-0.5 rounded font-mono font-bold ${
+                laserScannerActive ? 'bg-cyan-950 text-cyan-300 border border-cyan-500' : 'bg-slate-900 text-slate-400 border border-slate-800'
+              }`}>
+                {laserScannerActive ? 'ĐANG QUÉT' : 'TẮT'}
+              </span>
+            </button>
+          </div>
         </div>
       </div>
 
-      {/* Scientific Laboratory Telemetry HUD Overlay */}
-      <div className="absolute top-4 left-4 z-10 pointer-events-none select-none flex flex-col gap-2">
-        <div className="bg-slate-950/85 border border-cyan-500/30 backdrop-blur-md px-3.5 py-2.5 rounded-2xl shadow-2xl flex flex-col gap-1 max-w-xs sm:max-w-sm">
+      {/* Top-Right: DNA Polymerase Replication Console & Laboratory Telemetry HUD */}
+      <div className="absolute top-4 right-4 z-10 flex flex-col items-end gap-2.5 max-w-sm pointer-events-none select-none">
+        {/* DNA Polymerase III Active Console */}
+        {polymeraseActive && (
+          <div className="w-full bg-slate-950/92 border border-emerald-500/50 backdrop-blur-md p-3.5 rounded-2xl shadow-2xl pointer-events-auto flex flex-col gap-2 animate-fadeIn text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-1.5">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
+                <span className="font-bold text-xs text-emerald-300">DNA Polymerase III Holoenzyme</span>
+              </div>
+              <span className="text-[10px] font-mono bg-emerald-950/90 text-emerald-400 px-2 py-0.5 rounded border border-emerald-700/60">
+                5' → 3'
+              </span>
+            </div>
+
+            {/* Reaction telemetry info */}
+            <div className="bg-slate-900/80 rounded-xl p-2.5 border border-slate-800 flex flex-col gap-1 text-[11px] font-mono">
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-500">VỊ TRÍ:</span>
+                <span className="text-cyan-300 font-bold">Cặp base #{polymeraseTelemetry?.currentBpIndex || 1} / 12</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-500">MẠCH KHUÔN:</span>
+                <span className="text-emerald-400 font-bold">Base {polymeraseTelemetry?.templateBase || 'A'}</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-500">CƠ CHẤT GẮN:</span>
+                <span className="text-amber-400 font-bold">{polymeraseTelemetry?.incomingSubstrate || 'dTTP'} (Watson - Crick)</span>
+              </div>
+              <div className="flex items-center justify-between text-slate-300">
+                <span className="text-slate-500">GIAI ĐOẠN:</span>
+                <span className="text-sky-300">{polymeraseTelemetry?.reactionPhase || 'Gắn kết dNTP'}</span>
+              </div>
+              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1 border-t border-slate-800/60">
+                <span>Đọc sửa 3'→5':</span>
+                <span className="text-emerald-400">Hoạt động (99.999%)</span>
+              </div>
+            </div>
+
+            {/* Polymerase interactive controls */}
+            <div className="flex items-center justify-between gap-1.5 pt-0.5">
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    soundFx.playClick();
+                    setIsPolymerasePlaying(!isPolymerasePlaying);
+                  }}
+                  className={`p-1.5 rounded-lg border text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer ${
+                    isPolymerasePlaying
+                      ? 'bg-amber-600/90 text-white border-amber-500 hover:bg-amber-500'
+                      : 'bg-emerald-600 text-white border-emerald-500 hover:bg-emerald-500'
+                  }`}
+                  title={isPolymerasePlaying ? 'Tạm dừng mô phỏng' : 'Tiếp tục mô phỏng'}
+                >
+                  {isPolymerasePlaying ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
+                  <span>{isPolymerasePlaying ? 'Tạm dừng' : 'Chạy tiếp'}</span>
+                </button>
+
+                <button
+                  onClick={() => {
+                    soundFx.playClick();
+                    polymeraseProgressRef.current = Math.floor(polymeraseProgressRef.current) + 1;
+                  }}
+                  className="p-1.5 rounded-lg border border-slate-700 bg-slate-900 text-slate-300 hover:text-white hover:bg-slate-800 text-xs flex items-center gap-1 cursor-pointer transition-colors"
+                  title="Tiến thêm 1 nucleotide"
+                >
+                  <FastForward className="w-3.5 h-3.5" />
+                  <span>+1 bp</span>
+                </button>
+              </div>
+
+              {/* Speed selector */}
+              <div className="flex items-center gap-1">
+                {[1, 2, 4].map((spd) => (
+                  <button
+                    key={spd}
+                    onClick={() => {
+                      soundFx.playClick();
+                      onChangePolymeraseSpeed?.(spd);
+                    }}
+                    className={`px-2 py-1 rounded text-[10px] font-mono font-bold transition-colors cursor-pointer ${
+                      polymeraseSpeed === spd
+                        ? 'bg-cyan-600 text-white border border-cyan-400'
+                        : 'bg-slate-900 text-slate-400 border border-slate-800 hover:text-white'
+                    }`}
+                  >
+                    {spd}x
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Nút Khám Phá Hướng Dẫn Tương Tác 5'->3' & Okazaki */}
+            {onOpenPolymeraseWalkthrough && (
+              <button
+                onClick={() => {
+                  soundFx.playClick();
+                  onOpenPolymeraseWalkthrough();
+                }}
+                className="w-full mt-1 py-1.5 px-2.5 rounded-xl bg-gradient-to-r from-emerald-900/90 to-cyan-950/90 hover:from-emerald-800 hover:to-cyan-900 border border-emerald-500/50 text-emerald-200 hover:text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all shadow-md cursor-pointer"
+              >
+                <BookOpen className="w-3.5 h-3.5 text-cyan-300" />
+                <span>Hướng Dẫn: Chiều 5'→3' & Mạch Dẫn/Muộn</span>
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Scientific Laboratory Telemetry HUD Overlay */}
+        <div className="w-full bg-slate-950/85 border border-cyan-500/30 backdrop-blur-md px-3.5 py-2.5 rounded-2xl shadow-2xl flex flex-col gap-1">
           <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-1">
             <div className="flex items-center gap-1.5 font-mono text-[11px] font-bold text-cyan-300">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
@@ -1419,17 +1686,50 @@ export const DNAViewer: React.FC<DNAViewerProps> = ({
           <span className="text-slate-500">•</span>
           <span>Rãnh lớn: 2.2 nm | Rãnh nhỏ: 1.2 nm</span>
         </div>
-      </div>
 
-      {/* Hover / Selected Info Pill */}
-      {hoveredInfo && (
-        <div className="absolute top-4 right-4 z-10 pointer-events-none animate-fadeIn">
-          <div className="bg-slate-950/90 border border-cyan-500/60 backdrop-blur-md px-4 py-2 rounded-xl text-xs font-medium text-cyan-300 shadow-2xl flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
-            <span className="font-mono tracking-tight">{hoveredInfo}</span>
+        {/* Bio-Laser Real-time Scanning Telemetry HUD */}
+        {laserScannerActive && scannedTelemetry && (
+          <div className="w-full bg-slate-950/92 border border-cyan-500/50 backdrop-blur-md px-3.5 py-2.5 rounded-2xl shadow-2xl flex flex-col gap-1.5 pointer-events-auto animate-fadeIn text-[11px] font-mono text-slate-100">
+            <div className="flex items-center justify-between border-b border-slate-800/80 pb-1">
+              <div className="flex items-center gap-1.5 font-bold text-cyan-300">
+                <Zap className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                <span>QUÉT QUANG HỌC BIOLASER</span>
+              </div>
+              <span className="text-[10px] text-emerald-400 font-bold bg-emerald-950/90 px-2 py-0.5 rounded border border-emerald-700/60">
+                Y = {scannedTelemetry.yPos > 0 ? `+${scannedTelemetry.yPos.toFixed(1)}` : scannedTelemetry.yPos.toFixed(1)} Å
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-2 gap-y-1 text-[10px] pt-0.5">
+              <div className="text-slate-300">
+                <span className="text-slate-500">CẶP BASE: </span>
+                <span className="text-cyan-300 font-bold">#{scannedTelemetry.bpIndex} ({scannedTelemetry.baseA}≡{scannedTelemetry.baseB})</span>
+              </div>
+              <div className="text-slate-300 text-right">
+                <span className="text-slate-500">LIÊN KẾT H: </span>
+                <span className="text-amber-300 font-bold">{scannedTelemetry.hBonds} liên kết</span>
+              </div>
+              <div className="text-slate-300">
+                <span className="text-slate-500">NHIỆT CHẢY Tm: </span>
+                <span className="text-emerald-300 font-bold">{scannedTelemetry.tmTemp.toFixed(1)}°C</span>
+              </div>
+              <div className="text-slate-300 text-right">
+                <span className="text-slate-500">NĂNG LƯỢNG ΔG: </span>
+                <span className="text-purple-300 font-bold">{scannedTelemetry.deltaG.toFixed(1)} kcal/mol</span>
+              </div>
+            </div>
           </div>
-        </div>
-      )}
+        )}
+
+        {/* Hover / Selected Info Pill */}
+        {hoveredInfo && (
+          <div className="w-full animate-fadeIn">
+            <div className="bg-slate-950/92 border border-cyan-500/60 backdrop-blur-md px-3.5 py-2 rounded-xl text-xs font-medium text-cyan-300 shadow-2xl flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-ping shrink-0" />
+              <span className="font-mono tracking-tight text-[11px] leading-tight">{hoveredInfo}</span>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* Mode Overlay Badge for Mutations */}
       <div className="absolute bottom-24 left-4 z-10 pointer-events-none">

@@ -13,6 +13,7 @@ export interface NucleotideInfo {
   color: string;
   hexCode: string;
   description: string;
+  iupacRole?: string;
   sgkRole?: string;
   biologicalRole?: string;
 }
@@ -51,7 +52,7 @@ export type DNAViewMode =
 export type RenderStyle = 'ballstick' | 'sphere' | 'cartoon';
 
 // Chế độ màu sắc: Chuẩn IUPAC / 2 Chuỗi Polynucleotide / Nguyên tử CPK
-export type SphereColorMode = 'sgk' | 'strands' | 'cpk';
+export type SphereColorMode = 'iupac' | 'strands' | 'cpk' | 'sgk';
 
 // Độ gần của 2 dải ở Mô hình 3 (Dải Cartoon): 'close' = Gần nhau (Compact B-DNA), 'wide' = Mở rộng
 export type RibbonTightness = 'close' | 'wide';

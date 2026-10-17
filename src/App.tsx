@@ -3,6 +3,7 @@ import { Navbar, TabId } from './components/Navbar';
 import { DNAViewer } from './components/dna3d/DNAViewer';
 import { DNACustomizerDock } from './components/dna3d/DNACustomizerDock';
 import { NucleotideDetailModal } from './components/dna3d/NucleotideDetailModal';
+import { PolymeraseWalkthroughOverlay } from './components/dna3d/PolymeraseWalkthroughOverlay';
 import { StructureExplorer } from './components/tabs/StructureExplorer';
 import { MutationExplorer } from './components/tabs/MutationExplorer';
 import { MutationStudio } from './components/tabs/MutationStudio';
@@ -27,6 +28,12 @@ export default function App() {
 
   const [rotationSpeed, setRotationSpeed] = useState<number>(1.0);
   const [explodedFactor, setExplodedFactor] = useState<number>(0);
+
+  // DNA Polymerase III Replication Simulation
+  const [polymeraseActive, setPolymeraseActive] = useState<boolean>(false);
+  const [polymeraseSpeed, setPolymeraseSpeed] = useState<number>(2.0);
+  const [isPolymeraseWalkthroughOpen, setIsPolymeraseWalkthroughOpen] = useState<boolean>(false);
+  const [laserScannerActive, setLaserScannerActive] = useState<boolean>(true);
 
   // Nucleotide Inspector Modal
   const [selectedBasePair, setSelectedBasePair] = useState<BasePairData | null>(null);
@@ -94,6 +101,13 @@ export default function App() {
               explodedFactor={explodedFactor}
               onSelectBasePair={handleSelectBasePair}
               selectedPairIndex={selectedBasePair?.index ?? null}
+              polymeraseActive={polymeraseActive}
+              onTogglePolymerase={() => setPolymeraseActive(!polymeraseActive)}
+              polymeraseSpeed={polymeraseSpeed}
+              onChangePolymeraseSpeed={setPolymeraseSpeed}
+              onOpenPolymeraseWalkthrough={() => setIsPolymeraseWalkthroughOpen(true)}
+              laserScannerActive={laserScannerActive}
+              onToggleLaserScanner={() => setLaserScannerActive(!laserScannerActive)}
             />
 
             {/* Ergonomic Collapsible Bottom Control Dock */}
@@ -118,6 +132,13 @@ export default function App() {
               onChangeRotationSpeed={setRotationSpeed}
               explodedFactor={explodedFactor}
               onChangeExplodedFactor={setExplodedFactor}
+              polymeraseActive={polymeraseActive}
+              onTogglePolymerase={() => setPolymeraseActive(!polymeraseActive)}
+              polymeraseSpeed={polymeraseSpeed}
+              onChangePolymeraseSpeed={setPolymeraseSpeed}
+              onOpenPolymeraseWalkthrough={() => setIsPolymeraseWalkthroughOpen(true)}
+              laserScannerActive={laserScannerActive}
+              onToggleLaserScanner={() => setLaserScannerActive(!laserScannerActive)}
             />
           </div>
         )}
@@ -165,6 +186,18 @@ export default function App() {
       <ReferencesModal
         isOpen={isReferencesModalOpen}
         onClose={() => setIsReferencesModalOpen(false)}
+      />
+
+      {/* Interactive Guided Walk-Through Overlay for DNA Polymerase */}
+      <PolymeraseWalkthroughOverlay
+        isOpen={isPolymeraseWalkthroughOpen}
+        onClose={() => setIsPolymeraseWalkthroughOpen(false)}
+        polymeraseActive={polymeraseActive}
+        onTogglePolymerase={() => setPolymeraseActive(!polymeraseActive)}
+        polymeraseSpeed={polymeraseSpeed}
+        onChangePolymeraseSpeed={setPolymeraseSpeed}
+        viewMode={viewMode}
+        onChangeViewMode={setViewMode}
       />
     </div>
   );

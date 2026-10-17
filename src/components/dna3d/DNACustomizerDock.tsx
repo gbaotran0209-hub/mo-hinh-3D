@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { DNAViewMode, RenderStyle, HelixForm, SphereColorMode, RibbonTightness } from '../../types/genetics';
 import { soundFx } from '../../utils/soundEffects';
-import { Play, Pause, ChevronDown, ChevronUp, Layers, Sparkles, AlertTriangle, Box, Compass } from 'lucide-react';
+import { Play, Pause, ChevronDown, ChevronUp, Layers, Sparkles, AlertTriangle, Box, Compass, Activity, BookOpen, Zap } from 'lucide-react';
 
 interface DNACustomizerDockProps {
   viewMode: DNAViewMode;
@@ -24,6 +24,13 @@ interface DNACustomizerDockProps {
   onChangeRotationSpeed: (speed: number) => void;
   explodedFactor: number;
   onChangeExplodedFactor: (val: number) => void;
+  polymeraseActive?: boolean;
+  onTogglePolymerase?: () => void;
+  polymeraseSpeed?: number;
+  onChangePolymeraseSpeed?: (speed: number) => void;
+  onOpenPolymeraseWalkthrough?: () => void;
+  laserScannerActive?: boolean;
+  onToggleLaserScanner?: () => void;
 }
 
 export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
@@ -47,9 +54,16 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
   onChangeRotationSpeed,
   explodedFactor,
   onChangeExplodedFactor,
+  polymeraseActive = false,
+  onTogglePolymerase,
+  polymeraseSpeed = 2.0,
+  onChangePolymeraseSpeed,
+  onOpenPolymeraseWalkthrough,
+  laserScannerActive = true,
+  onToggleLaserScanner,
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
-  const [activeTab, setActiveTab] = useState<'style' | 'mutations' | 'dna_forms' | 'settings'>('style');
+  const [activeTab, setActiveTab] = useState<'style' | 'mutations' | 'polymerase' | 'dna_forms' | 'settings'>('style');
 
   const simulationModes: { id: DNAViewMode; label: string; icon: string; desc: string }[] = [
     {
@@ -152,6 +166,20 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
             >
               <Sparkles className="w-3.5 h-3.5" />
               <span>Mô Phỏng Đột Biến Gen Phân Tử</span>
+            </button>
+            <button
+              onClick={() => {
+                soundFx.playClick();
+                setActiveTab('polymerase');
+              }}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors cursor-pointer ${
+                activeTab === 'polymerase'
+                  ? 'bg-emerald-600 text-white font-semibold shadow-md shadow-emerald-500/20'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+              }`}
+            >
+              <Activity className="w-3.5 h-3.5" />
+              <span>Enzyme DNA Polymerase</span>
             </button>
             <button
               onClick={() => {
@@ -439,6 +467,24 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
                     <span>{showLabels ? '👁️ Nhãn Base A-T-G-C' : '👁️ Đã ẩn nhãn'}</span>
                   </button>
                 </div>
+
+                {/* Thanh trượt tách 2 dải ra hai phía giữ bậc thang ở giữa */}
+                <div className="w-full pt-2.5 mt-1 border-t border-purple-500/20 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs text-purple-300 whitespace-nowrap">
+                    <span className="font-semibold">Độ tách 2 dải ruy-băng ra xa phần ở giữa:</span>
+                    <span className="font-mono font-bold text-cyan-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">{Math.round(explodedFactor * 100)}%</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={explodedFactor}
+                    onChange={(e) => onChangeExplodedFactor(parseFloat(e.target.value))}
+                    className="flex-1 max-w-sm accent-purple-400 bg-slate-800 rounded-lg cursor-pointer h-1.5"
+                    title="Kéo để 2 dải ruy-băng tách rộng sang hai phía và để lộ bậc thang ở giữa"
+                  />
+                </div>
               </div>
             )}
           </div>
@@ -477,6 +523,101 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
               </div>
               <span className="text-slate-500 hidden sm:inline">Phân loại biến dị di truyền phân tử chuẩn quốc tế</span>
             </div>
+          </div>
+        )}
+
+        {/* Tab 3: Enzyme DNA Polymerase III */}
+        {activeTab === 'polymerase' && (
+          <div className="space-y-3 animate-fadeIn">
+            <div className="bg-slate-950/80 border border-emerald-500/30 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-950/80 border border-emerald-500/50 flex items-center justify-center text-lg">
+                  🧬
+                </div>
+                <div>
+                  <h3 className="text-xs font-bold text-white flex items-center gap-2">
+                    <span>Phức Hệ Enzyme DNA Polymerase III (Tổng Hợp Kéo Dài 5' → 3')</span>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold ${
+                      polymeraseActive ? 'bg-emerald-950 text-emerald-300 border border-emerald-600' : 'bg-slate-900 text-slate-400'
+                    }`}>
+                      {polymeraseActive ? 'ĐANG CHẠY' : 'ĐÃ DỪNG'}
+                    </span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    Mô phỏng 3D thời gian thực: Kẹp trượt β (Sliding Clamp) khóa chặt duplex, xúc tác gắn dNTP tự do theo nguyên tắc Watson - Crick.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    soundFx.playClick();
+                    onTogglePolymerase?.();
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2 ${
+                    polymeraseActive
+                      ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-lg shadow-amber-600/30'
+                      : 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-600/30'
+                  }`}
+                >
+                  {polymeraseActive ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
+                  <span>{polymeraseActive ? 'Dừng Mô Phỏng' : 'Kích Hoạt Mô Phỏng 3D'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Polymerase biochemical parameters */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 text-xs font-mono">
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="text-slate-500 text-[10px] mb-0.5">CHIỀU TỔNG HỢP:</div>
+                <div className="text-cyan-300 font-bold">5' → 3' Polarity</div>
+                <div className="text-slate-400 text-[10px] mt-0.5">Xúc tác liên kết phosphodiester vào đầu 3'-OH tự do</div>
+              </div>
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="text-slate-500 text-[10px] mb-0.5">KẸP TRƯỢT β (SLIDING CLAMP):</div>
+                <div className="text-amber-400 font-bold">Vòng kép Homodimer</div>
+                <div className="text-slate-400 text-[10px] mt-0.5">Tăng độ bền vững xúc tác (Processivity &gt; 5,000 bp)</div>
+              </div>
+              <div className="bg-slate-950/60 p-2.5 rounded-xl border border-slate-800">
+                <div className="text-slate-500 text-[10px] mb-0.5">ĐỌC SỬA (PROOFREADING):</div>
+                <div className="text-emerald-400 font-bold">3' → 5' Exonuclease</div>
+                <div className="text-slate-400 text-[10px] mt-0.5">Tự động nhận diện và cắt nucleotide sai (Sai số 1 / 10^7)</div>
+              </div>
+            </div>
+
+            {/* Guided Walkthrough Callout Banner */}
+            {onOpenPolymeraseWalkthrough && (
+              <div className="bg-gradient-to-r from-emerald-950/80 via-slate-950/90 to-cyan-950/80 border border-emerald-500/40 rounded-xl p-3 flex flex-wrap items-center justify-between gap-3 shadow-lg">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300">
+                    <BookOpen className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Hướng Dẫn Tương Tác: Chiều 5'→3' & Cơ Chế Mạch Dẫn / Mạch Muộn</span>
+                      <span className="text-[10px] bg-emerald-900/90 text-emerald-300 px-2 py-0.5 rounded font-mono border border-emerald-600/50">
+                        5 BƯỚC CHUYÊN SÂU
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Giải thích trực quan: Tấn công ái nhân vào α-Phosphate, nghịch lý đối song song và sự hình thành đoạn Okazaki.
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    soundFx.playClick();
+                    onOpenPolymeraseWalkthrough();
+                  }}
+                  className="px-3.5 py-1.5 rounded-lg bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-bold flex items-center gap-1.5 transition-all shadow-md cursor-pointer ml-auto"
+                >
+                  <BookOpen className="w-3.5 h-3.5" />
+                  <span>Mở Hướng Dẫn Tương Tác</span>
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -586,10 +727,34 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
               </button>
             </div>
 
+            {/* Toggle Bio-Laser Scanner */}
+            <div className="p-2.5 bg-slate-950/60 border border-slate-800 rounded-xl flex items-center justify-between">
+              <div>
+                <span className="text-xs font-semibold text-slate-200 block flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Tia laser quét phân tử</span>
+                </span>
+                <span className="text-[10px] text-slate-400">Mặt phẳng quét quang phổ & Tm</span>
+              </div>
+              <button
+                onClick={() => {
+                  soundFx.playClick();
+                  onToggleLaserScanner?.();
+                }}
+                className={`px-3 py-1 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+                  laserScannerActive
+                    ? 'bg-cyan-600 text-white shadow-sm'
+                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                }`}
+              >
+                {laserScannerActive ? 'Đang bật' : 'Đang tắt'}
+              </button>
+            </div>
+
             {/* Exploded slider */}
-            <div className="p-2.5 bg-slate-950/60 border border-slate-800 rounded-xl">
+            <div className="p-2.5 bg-slate-950/60 border border-slate-800 rounded-xl sm:col-span-2 md:col-span-3">
               <div className="flex justify-between items-center mb-1">
-                <span className="text-xs font-semibold text-slate-200">Độ mở rộng khung xoắn:</span>
+                <span className="text-xs font-semibold text-slate-200">Độ tách 2 dải ruy-băng ra xa (bậc thang tự co giãn ăn khớp 100%):</span>
                 <span className="text-xs font-mono text-cyan-400">{Math.round(explodedFactor * 100)}%</span>
               </div>
               <input
@@ -600,6 +765,7 @@ export const DNACustomizerDock: React.FC<DNACustomizerDockProps> = ({
                 value={explodedFactor}
                 onChange={(e) => onChangeExplodedFactor(parseFloat(e.target.value))}
                 className="w-full accent-cyan-400 bg-slate-800 rounded-lg cursor-pointer h-1.5"
+                title="Kéo thanh trượt để 2 dải ruy-băng tách xa sang hai phía và các bậc thang tự động co giãn theo"
               />
             </div>
           </div>
