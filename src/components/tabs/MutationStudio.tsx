@@ -29,7 +29,7 @@ const PRESETS: GenePreset[] = [
     name: 'Đoạn gen CFTR (Bệnh xơ nang Delta F508)',
     gene: 'CFTR',
     sequence: 'ACCATTAAAGAAAATATCATCTTTGGTGTT', // CTT (Phe508)
-    description: 'Đoạn mã hóa vùng F508. Mất 3 nucleotide CTT sẽ làm mất axit amin Phenylalanine, gây cuộn gập sai hỏng kênh ion Cl-.',
+    description: 'Đoạn mã hóa vùng F508. Mất 3 nucleotide CTT sẽ làm mất amino acid Phenylalanine, gây cuộn gập sai hỏng kênh ion Cl-.',
     mutationHotspotIndex: 18,
   },
   {
@@ -166,7 +166,7 @@ export const MutationStudio: React.FC = () => {
         type: 'silent',
         title: 'Đột biến đồng nghĩa (Silent Mutation)',
         severity: 'mild',
-        detail: `Thay đổi ${diffCount} cặp nucleotide nhưng không làm đổi bất kỳ axit amin nào do tính thoái hóa của mã di truyền.`
+        detail: `Thay đổi ${diffCount} cặp nucleotide nhưng không làm đổi bất kỳ amino acid nào do tính thoái hóa của mã di truyền.`
       };
     }
 
@@ -183,7 +183,7 @@ export const MutationStudio: React.FC = () => {
       type: 'missense',
       title: `Đột biến sai nghĩa (Missense Mutation): ${oldAa} → ${newAa}`,
       severity: 'moderate',
-      detail: `Thay đổi 1 axit amin tại vị trí codon bị đột biến. Nếu thay thế giữa axit amin ưa nước (Hydrophilic) và kỵ nước (Hydrophobic), cấu trúc protein có thể bị sụp đổ (như bệnh hồng cầu liềm HbS).`
+      detail: `Thay đổi 1 amino acid tại vị trí codon bị đột biến. Nếu thay thế giữa amino acid ưa nước (Hydrophilic) và kỵ nước (Hydrophobic), cấu trúc protein có thể bị sụp đổ (như bệnh hồng cầu liềm HbS).`
     };
   }, [dnaSequence, selectedPreset, translatedAAs, originalTranslation]);
 
@@ -425,7 +425,7 @@ export const MutationStudio: React.FC = () => {
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-emerald-400 flex items-center gap-1.5">
                 <Check className="w-3.5 h-3.5" />
-                <span>2. Chuỗi Polypeptide (Dịch mã Axit Amin)</span>
+                <span>2. Chuỗi Polypeptide (Dịch mã Amino Acid)</span>
               </span>
               <span className="text-[10px] text-slate-500 font-mono">Đầu N → Đầu C</span>
             </div>
@@ -455,8 +455,8 @@ export const MutationStudio: React.FC = () => {
             </div>
 
             <div className="text-[11px] text-slate-400 flex justify-between">
-              <span>Độ dài: <strong>{translatedAAs.length} axit amin</strong></span>
-              <span className="text-amber-400 font-mono text-[10px]">Màu vàng: Axit amin bị biến đổi</span>
+              <span>Độ dài: <strong>{translatedAAs.length} amino acid</strong></span>
+              <span className="text-amber-400 font-mono text-[10px]">Màu vàng: Amino acid bị biến đổi</span>
             </div>
           </div>
         </div>

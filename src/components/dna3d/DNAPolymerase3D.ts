@@ -59,16 +59,20 @@ class BetaStrandCurve extends THREE.Curve<THREE.Vector3> {
 export class DNAPolymeraseModel {
   public group: THREE.Group;
   private clampGroup: THREE.Group;
+  private coreGroup: THREE.Group;
   private palmGroup: THREE.Group;
   private fingersGroup: THREE.Group;
   private thumbGroup: THREE.Group;
+  private exonucleaseGroup: THREE.Group;
+  private proteinEnvelope: THREE.Mesh;
   private mgIon1: THREE.Mesh;
   private mgIon2: THREE.Mesh;
   private mgLight: THREE.PointLight;
   private incomingDntpGroup: THREE.Group;
-  private dntpPhosphate1: THREE.Mesh;
-  private dntpPhosphate2: THREE.Mesh;
-  private dntpPhosphate3: THREE.Mesh;
+  private dntpPhosphateAlpha: THREE.Mesh;
+  private ppiGroup: THREE.Group;
+  private dntpPhosphateBeta: THREE.Mesh;
+  private dntpPhosphateGamma: THREE.Mesh;
   private dntpBaseSphere: THREE.Mesh;
   private dntpLabelSprite: THREE.Sprite;
   private daughterStrandGroup: THREE.Group;
@@ -82,18 +86,18 @@ export class DNAPolymeraseModel {
     const clampGoldMat = new THREE.MeshPhysicalMaterial({
       color: '#f59e0b',
       emissive: '#d97706',
-      emissiveIntensity: 0.28,
-      metalness: 0.94,
-      roughness: 0.16,
+      emissiveIntensity: 0.32,
+      metalness: 0.95,
+      roughness: 0.14,
       clearcoat: 1.0,
       clearcoatRoughness: 0.08,
-      reflectivity: 0.9,
+      reflectivity: 0.95,
     });
 
     const clampHingeMat = new THREE.MeshPhysicalMaterial({
       color: '#fbbf24',
       metalness: 0.98,
-      roughness: 0.10,
+      roughness: 0.08,
       clearcoat: 1.0,
     });
 
@@ -101,8 +105,8 @@ export class DNAPolymeraseModel {
     const helixMat = new THREE.MeshPhysicalMaterial({
       color: '#0284c7', // Sky-Sapphire
       emissive: '#0369a1',
-      emissiveIntensity: 0.22,
-      roughness: 0.20,
+      emissiveIntensity: 0.26,
+      roughness: 0.18,
       metalness: 0.35,
       clearcoat: 0.95,
       clearcoatRoughness: 0.10,
@@ -112,8 +116,8 @@ export class DNAPolymeraseModel {
     const betaSheetMat = new THREE.MeshPhysicalMaterial({
       color: '#059669', // Emerald
       emissive: '#047857',
-      emissiveIntensity: 0.26,
-      roughness: 0.18,
+      emissiveIntensity: 0.30,
+      roughness: 0.16,
       metalness: 0.30,
       clearcoat: 0.95,
       clearcoatRoughness: 0.10,
@@ -124,40 +128,52 @@ export class DNAPolymeraseModel {
     const thumbHelixMat = new THREE.MeshPhysicalMaterial({
       color: '#8b5cf6', // Violet
       emissive: '#7c3aed',
-      emissiveIntensity: 0.24,
-      roughness: 0.20,
+      emissiveIntensity: 0.28,
+      roughness: 0.18,
       metalness: 0.35,
       clearcoat: 0.95,
       clearcoatRoughness: 0.10,
     });
 
+    // 5. Exonuclease Proofreading Material (Ruby / Rose)
+    const exoMat = new THREE.MeshPhysicalMaterial({
+      color: '#e11d48', // Ruby Rose
+      emissive: '#be123c',
+      emissiveIntensity: 0.28,
+      roughness: 0.20,
+      metalness: 0.30,
+      clearcoat: 0.95,
+    });
+
     // =========================================================================
-    // 1. BETA-SLIDING CLAMP (HOMODIMER RING WITH HINGE & CLEFT CHANNELS)
+    // 1. BETA-SLIDING CLAMP (ENCIRCLES THE CENTRAL DNA HELICAL DUPLEX AXIS)
     // =========================================================================
     this.clampGroup = new THREE.Group();
-    this.clampGroup.position.set(0, -2.4, 0);
+    this.clampGroup.position.set(0, -2.6, 0);
 
-    // Two semi-circular subunits forming the clamp ring
-    const subunitAngle = Math.PI - 0.20;
-    const ringRadius = 3.6;
-    const ringTube = 0.46;
+    // Torus dimer encircling the central DNA helical axis (outer diameter ~10Å radius)
+    const ringRadius = 4.8;
+    const ringTube = 0.52;
+    const subunitAngle = Math.PI - 0.16;
 
-    const clampGeo1 = new THREE.TorusGeometry(ringRadius, ringTube, 16, 36, subunitAngle);
+    // Subunit A
+    const clampGeo1 = new THREE.TorusGeometry(ringRadius, ringTube, 16, 40, subunitAngle);
     const clampMesh1 = new THREE.Mesh(clampGeo1, clampGoldMat);
     clampMesh1.rotation.x = Math.PI / 2;
-    clampMesh1.rotation.z = 0.10;
+    clampMesh1.rotation.z = 0.08;
     clampMesh1.castShadow = true;
     this.clampGroup.add(clampMesh1);
 
-    const clampGeo2 = new THREE.TorusGeometry(ringRadius, ringTube, 16, 36, subunitAngle);
+    // Subunit B
+    const clampGeo2 = new THREE.TorusGeometry(ringRadius, ringTube, 16, 40, subunitAngle);
     const clampMesh2 = new THREE.Mesh(clampGeo2, clampGoldMat);
     clampMesh2.rotation.x = Math.PI / 2;
-    clampMesh2.rotation.z = Math.PI + 0.10;
+    clampMesh2.rotation.z = Math.PI + 0.08;
     clampMesh2.castShadow = true;
     this.clampGroup.add(clampMesh2);
 
     // Hinge joints connecting the two clamp halves
-    const hingeGeo = new THREE.CylinderGeometry(0.52, 0.52, 0.65, 16);
+    const hingeGeo = new THREE.CylinderGeometry(0.58, 0.58, 0.72, 16);
     const hinge1 = new THREE.Mesh(hingeGeo, clampHingeMat);
     hinge1.position.set(ringRadius, 0, 0);
     this.clampGroup.add(hinge1);
@@ -169,25 +185,44 @@ export class DNAPolymeraseModel {
     this.group.add(this.clampGroup);
 
     // =========================================================================
-    // 2. CATALYTIC PALM DOMAIN (ANTIPARALLEL BETA-SHEET CORE & Mg2+ ACTIVE SITE)
+    // 2. CATALYTIC CORE GROUP (Rides on the template strand at radius ~7.5Å)
     // =========================================================================
-    this.palmGroup = new THREE.Group();
-    this.palmGroup.position.set(2.2, 0.2, 0.8);
+    this.coreGroup = new THREE.Group();
+    this.coreGroup.position.set(7.2, 0, 0);
 
-    // 3 parallel/antiparallel beta-strands with directional arrow tips
+    // 2.1 Soft Protein Electron Density Envelope (Translucent Molecular Surface)
+    const envGeo = new THREE.CapsuleGeometry(2.8, 4.2, 16, 24);
+    const envMat = new THREE.MeshPhysicalMaterial({
+      color: '#38bdf8',
+      transmission: 0.65,
+      opacity: 0.32,
+      transparent: true,
+      roughness: 0.15,
+      ior: 1.35,
+      clearcoat: 0.9,
+    });
+    this.proteinEnvelope = new THREE.Mesh(envGeo, envMat);
+    this.proteinEnvelope.position.set(0.6, 0.4, 0);
+    this.proteinEnvelope.rotation.z = Math.PI / 8;
+    this.coreGroup.add(this.proteinEnvelope);
+
+    // 2.2 CATALYTIC PALM DOMAIN (Antiparallel Beta-Sheets)
+    this.palmGroup = new THREE.Group();
+    this.palmGroup.position.set(0.4, 0.2, 0.6);
+
     for (let b = 0; b < 3; b++) {
-      const strandCurve = new BetaStrandCurve(3.6, 2.0, 0.25);
+      const strandCurve = new BetaStrandCurve(3.6, 2.0, 0.24);
       const strandGeo = new THREE.TubeGeometry(strandCurve, 40, 0.22, 12, false);
       const strandMesh = new THREE.Mesh(strandGeo, betaSheetMat);
-      strandMesh.position.set((b - 1) * 0.72, 0, (b % 2 === 0 ? 0.2 : -0.2));
+      strandMesh.position.set((b - 1) * 0.70, 0, (b % 2 === 0 ? 0.2 : -0.2));
       strandMesh.rotation.z = Math.PI / 8;
       strandMesh.castShadow = true;
       this.palmGroup.add(strandMesh);
 
-      // Arrow tip on beta-strand (PDB cartoon ribbon convention)
-      const arrowGeo = new THREE.ConeGeometry(0.40, 0.75, 12);
+      // Arrow tip on beta-strand
+      const arrowGeo = new THREE.ConeGeometry(0.38, 0.70, 12);
       const arrowMesh = new THREE.Mesh(arrowGeo, betaSheetMat);
-      arrowMesh.position.set((b - 1) * 0.72, b % 2 === 0 ? 1.9 : -1.9, (b % 2 === 0 ? 0.2 : -0.2));
+      arrowMesh.position.set((b - 1) * 0.70, b % 2 === 0 ? 1.85 : -1.85, (b % 2 === 0 ? 0.2 : -0.2));
       arrowMesh.rotation.x = b % 2 === 0 ? 0 : Math.PI;
       this.palmGroup.add(arrowMesh);
     }
@@ -198,37 +233,30 @@ export class DNAPolymeraseModel {
     palmMeshH1.position.set(1.4, 0, -0.6);
     palmMeshH1.rotation.x = Math.PI / 6;
     this.palmGroup.add(palmMeshH1);
+    this.coreGroup.add(this.palmGroup);
 
-    this.group.add(this.palmGroup);
-
-    // =========================================================================
-    // 3. FINGERS DOMAIN (FLEXIBLE BUNDLE OF ALPHA-HELICES FOR dNTP BINDING)
-    // =========================================================================
+    // 2.3 FINGERS DOMAIN (Coiled Alpha-Helices with conformational flex)
     this.fingersGroup = new THREE.Group();
-    this.fingersGroup.position.set(2.0, 1.8, -1.2);
+    this.fingersGroup.position.set(0.2, 1.8, -1.4);
 
-    // 4 coiled alpha-helices creating the fingers domain pocket
     for (let f = 0; f < 4; f++) {
       const angleOffset = (f * Math.PI) / 2;
-      const fingerCurve = new AlphaHelixCurve(0.50, 3.4, 2.8, angleOffset);
+      const fingerCurve = new AlphaHelixCurve(0.48, 3.4, 2.8, angleOffset);
       const fingerGeo = new THREE.TubeGeometry(fingerCurve, 48, 0.18, 12, false);
       const fingerMesh = new THREE.Mesh(fingerGeo, helixMat);
-      fingerMesh.position.set(Math.cos(angleOffset) * 0.75, 0, Math.sin(angleOffset) * 0.75);
+      fingerMesh.position.set(Math.cos(angleOffset) * 0.72, 0, Math.sin(angleOffset) * 0.72);
       fingerMesh.rotation.x = -Math.PI / 4 + (f * 0.08);
       fingerMesh.castShadow = true;
       this.fingersGroup.add(fingerMesh);
     }
+    this.coreGroup.add(this.fingersGroup);
 
-    this.group.add(this.fingersGroup);
-
-    // =========================================================================
-    // 4. THUMB DOMAIN (ALPHA-HELICAL GRASP OVER DUPLEX EXIT CHANNEL)
-    // =========================================================================
+    // 2.4 THUMB DOMAIN (Guides the exiting daughter duplex)
     this.thumbGroup = new THREE.Group();
-    this.thumbGroup.position.set(-2.0, 0.8, 1.8);
+    this.thumbGroup.position.set(-1.8, 0.6, 1.4);
 
     for (let t = 0; t < 2; t++) {
-      const thumbCurve = new AlphaHelixCurve(0.58, 3.6, 3.0, t * Math.PI);
+      const thumbCurve = new AlphaHelixCurve(0.55, 3.6, 3.0, t * Math.PI);
       const thumbGeo = new THREE.TubeGeometry(thumbCurve, 48, 0.20, 12, false);
       const thumbMesh = new THREE.Mesh(thumbGeo, thumbHelixMat);
       thumbMesh.position.set(t * 0.75, 0, 0);
@@ -237,27 +265,45 @@ export class DNAPolymeraseModel {
       thumbMesh.castShadow = true;
       this.thumbGroup.add(thumbMesh);
     }
+    this.coreGroup.add(this.thumbGroup);
 
-    this.group.add(this.thumbGroup);
+    // 2.5 EXONUCLEASE 3'→5' PROOFREADING DOMAIN (Ruby Rose Cleft)
+    this.exonucleaseGroup = new THREE.Group();
+    this.exonucleaseGroup.position.set(-1.2, -1.2, -1.2);
 
-    // =========================================================================
-    // 5. CATALYTIC ACTIVE SITE: DUAL Mg2+ IONS & FLUORESCENT CHARGE
-    // =========================================================================
+    const exoHelixGeo = new THREE.TubeGeometry(new AlphaHelixCurve(0.50, 2.8, 2.5), 36, 0.18, 12, false);
+    const exoHelixMesh = new THREE.Mesh(exoHelixGeo, exoMat);
+    exoHelixMesh.rotation.z = Math.PI / 3;
+    this.exonucleaseGroup.add(exoHelixMesh);
+
+    // Secondary Zn2+/Mg2+ proofreading active catalytic sphere
+    const znGeo = new THREE.SphereGeometry(0.20, 12, 12);
+    const znMat = new THREE.MeshStandardMaterial({
+      color: '#f43f5e',
+      emissive: '#be123c',
+      emissiveIntensity: 1.8,
+    });
+    const znMesh = new THREE.Mesh(znGeo, znMat);
+    znMesh.position.set(0.4, 0.2, 0.3);
+    this.exonucleaseGroup.add(znMesh);
+    this.coreGroup.add(this.exonucleaseGroup);
+
+    // 2.6 ACTIVE SITE: 2x Mg2+ IONS & FLUORESCENT CHARGE
     const mgGeo = new THREE.SphereGeometry(0.26, 16, 16);
     const mgMat = new THREE.MeshStandardMaterial({
       color: '#38bdf8',
       emissive: '#06b6d4',
-      emissiveIntensity: 2.2,
+      emissiveIntensity: 2.4,
       roughness: 0.08,
     });
 
     this.mgIon1 = new THREE.Mesh(mgGeo, mgMat);
-    this.mgIon1.position.set(1.2, 0.4, 0.5);
-    this.group.add(this.mgIon1);
+    this.mgIon1.position.set(-0.2, 0.3, 0.3);
+    this.coreGroup.add(this.mgIon1);
 
     this.mgIon2 = new THREE.Mesh(mgGeo, mgMat);
-    this.mgIon2.position.set(1.8, 0.2, 0.8);
-    this.group.add(this.mgIon2);
+    this.mgIon2.position.set(0.4, 0.1, 0.6);
+    this.coreGroup.add(this.mgIon2);
 
     // Coordination bond dashed lines to simulate active site coordination
     const coordMat = new THREE.LineDashedMaterial({
@@ -267,21 +313,21 @@ export class DNAPolymeraseModel {
       linewidth: 2,
     });
     const coordPts = [
-      new THREE.Vector3(1.2, 0.4, 0.5),
-      new THREE.Vector3(1.8, 0.2, 0.8),
-      new THREE.Vector3(1.5, 0.9, 0.2),
+      new THREE.Vector3(-0.2, 0.3, 0.3),
+      new THREE.Vector3(0.4, 0.1, 0.6),
+      new THREE.Vector3(0.1, 0.8, 0.1),
     ];
     const coordGeo = new THREE.BufferGeometry().setFromPoints(coordPts);
     const coordLine = new THREE.Line(coordGeo, coordMat);
     coordLine.computeLineDistances();
-    this.group.add(coordLine);
+    this.coreGroup.add(coordLine);
 
-    this.mgLight = new THREE.PointLight('#38bdf8', 2.2, 9);
-    this.mgLight.position.set(1.5, 0.3, 0.65);
-    this.group.add(this.mgLight);
+    this.mgLight = new THREE.PointLight('#38bdf8', 2.4, 10);
+    this.mgLight.position.set(0.1, 0.2, 0.4);
+    this.coreGroup.add(this.mgLight);
 
     // =========================================================================
-    // 6. INCOMING dNTP SUBSTRATE (TRIPHOSPHATE + NITROGENOUS BASE + LABEL)
+    // 3. INCOMING dNTP & PYROPHOSPHATE (PPi) CLEAVAGE ANIMATION
     // =========================================================================
     this.incomingDntpGroup = new THREE.Group();
     const pGeo = new THREE.SphereGeometry(0.22, 12, 12);
@@ -292,16 +338,21 @@ export class DNAPolymeraseModel {
       roughness: 0.15,
     });
 
-    // α, β, γ phosphate spheres
-    this.dntpPhosphate1 = new THREE.Mesh(pGeo, pMat);
-    this.dntpPhosphate2 = new THREE.Mesh(pGeo, pMat);
-    this.dntpPhosphate3 = new THREE.Mesh(pGeo, pMat);
-    this.dntpPhosphate1.position.set(0, 0, 0);
-    this.dntpPhosphate2.position.set(0.38, 0.16, 0);
-    this.dntpPhosphate3.position.set(0.76, 0.32, 0);
-    this.incomingDntpGroup.add(this.dntpPhosphate1);
-    this.incomingDntpGroup.add(this.dntpPhosphate2);
-    this.incomingDntpGroup.add(this.dntpPhosphate3);
+    // α-Phosphate (stays linked to 3'-OH)
+    this.dntpPhosphateAlpha = new THREE.Mesh(pGeo, pMat);
+    this.dntpPhosphateAlpha.position.set(0, 0, 0);
+    this.incomingDntpGroup.add(this.dntpPhosphateAlpha);
+
+    // β & γ Pyrophosphate group (splits and diffuses away after catalysis)
+    this.ppiGroup = new THREE.Group();
+    this.dntpPhosphateBeta = new THREE.Mesh(pGeo, pMat);
+    this.dntpPhosphateBeta.position.set(0.38, 0.16, 0);
+    this.ppiGroup.add(this.dntpPhosphateBeta);
+
+    this.dntpPhosphateGamma = new THREE.Mesh(pGeo, pMat);
+    this.dntpPhosphateGamma.position.set(0.76, 0.32, 0);
+    this.ppiGroup.add(this.dntpPhosphateGamma);
+    this.incomingDntpGroup.add(this.ppiGroup);
 
     // Deoxyribose ring
     const riboseGeo = new THREE.CylinderGeometry(0.35, 0.35, 0.14, 5);
@@ -346,28 +397,30 @@ export class DNAPolymeraseModel {
     this.dntpLabelSprite.position.set(-0.2, 0.9, 0);
     this.incomingDntpGroup.add(this.dntpLabelSprite);
 
-    this.group.add(this.incomingDntpGroup);
+    this.coreGroup.add(this.incomingDntpGroup);
 
     // =========================================================================
-    // 7. NASCENT DAUGHTER STRAND TAIL (EMERGING FROM EXIT CHANNEL)
+    // 4. NASCENT DAUGHTER STRAND EMERGENCE
     // =========================================================================
     this.daughterStrandGroup = new THREE.Group();
     const daughterCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(0, -1.8, 0.6),
-      new THREE.Vector3(-0.8, -2.8, 1.2),
-      new THREE.Vector3(-1.4, -3.8, 1.8),
+      new THREE.Vector3(-0.6, -0.8, 0.8),
+      new THREE.Vector3(-1.4, -1.8, 1.4),
+      new THREE.Vector3(-2.2, -2.8, 2.0),
     ]);
-    const daughterGeo = new THREE.TubeGeometry(daughterCurve, 24, 0.32, 12, false);
+    const daughterGeo = new THREE.TubeGeometry(daughterCurve, 24, 0.30, 12, false);
     const daughterMat = new THREE.MeshPhysicalMaterial({
-      color: '#10b981', // Nascent Green
+      color: '#10b981', // Nascent Emerald
       emissive: '#059669',
-      emissiveIntensity: 0.7,
+      emissiveIntensity: 0.8,
       roughness: 0.12,
       clearcoat: 1.0,
     });
     const daughterMesh = new THREE.Mesh(daughterGeo, daughterMat);
     this.daughterStrandGroup.add(daughterMesh);
-    this.group.add(this.daughterStrandGroup);
+    this.coreGroup.add(this.daughterStrandGroup);
+
+    this.group.add(this.coreGroup);
   }
 
   public update(
@@ -396,28 +449,30 @@ export class DNAPolymeraseModel {
     const currentPair = basePairPositions[idx0];
     const nextPair = basePairPositions[idx1];
 
-    // Enzyme follows template strand (Strand A)
+    // Template strand position
     const targetPos0 = currentPair.posA;
     const targetPos1 = nextPair.posA;
     const interpPos = targetPos0.clone().lerp(targetPos1, frac);
 
-    this.group.position.copy(interpPos);
+    // 1. Center the enzyme complex at the DNA longitudinal axis (Y)
+    this.group.position.set(0, interpPos.y, 0);
 
-    // Rotate enzyme so active site always faces the helical core
-    const angleY = Math.atan2(interpPos.x, interpPos.z);
-    this.group.rotation.y = angleY + Math.PI / 2;
+    // 2. Rotate enzyme so the catalytic core group faces the current template nucleotide
+    const angleY = Math.atan2(interpPos.z, interpPos.x);
+    this.group.rotation.y = -angleY;
+
+    // Radius of template strand from central axis
+    const strandRadius = Math.sqrt(interpPos.x * interpPos.x + interpPos.z * interpPos.z);
+    this.coreGroup.position.set(strandRadius, 0, 0);
 
     // Fingers domain conformational flex:
     // Open during approach (frac < 0.4), closes tightly during phosphodiester catalysis (frac 0.4 - 0.85)
     let fingerFlex = 0;
     if (frac < 0.40) {
-      // Open conformation
-      fingerFlex = 0.18 * (1 - frac / 0.40);
+      fingerFlex = 0.20 * (1 - frac / 0.40);
     } else if (frac < 0.85) {
-      // Tightly closed catalytic conformation
-      fingerFlex = -0.15;
+      fingerFlex = -0.16;
     } else {
-      // Re-opening for translocation
       fingerFlex = 0.12 * ((frac - 0.85) / 0.15);
     }
     this.fingersGroup.rotation.x = -Math.PI / 4 + fingerFlex;
@@ -435,15 +490,22 @@ export class DNAPolymeraseModel {
     if (frac < 0.42) {
       // Approach phase
       const approachFrac = frac / 0.42;
-      this.incomingDntpGroup.position.set(4.2 * (1 - approachFrac) + 0.8, 1.5 * (1 - approachFrac), 1.6 * (1 - approachFrac));
+      this.incomingDntpGroup.position.set(3.8 * (1 - approachFrac) + 0.6, 1.4 * (1 - approachFrac), 1.5 * (1 - approachFrac));
       this.incomingDntpGroup.scale.setScalar(0.65 + approachFrac * 0.35);
+      this.ppiGroup.position.set(0, 0, 0);
       this.mgLight.intensity = 1.2;
     } else {
       // Docked & Catalytic bond formation phase
-      this.incomingDntpGroup.position.set(0.8, 0, 0);
+      this.incomingDntpGroup.position.set(0.6, 0, 0);
       this.incomingDntpGroup.scale.setScalar(1.0);
+
+      // Pyrophosphate (PPi) cleavage & release animation
+      const ppiFrac = (frac - 0.42) / 0.58;
+      this.ppiGroup.position.set(ppiFrac * 2.5, ppiFrac * 1.5, -ppiFrac * 1.8);
+      this.ppiGroup.scale.setScalar(Math.max(0.2, 1 - ppiFrac * 0.8));
+
       // Flash of phosphodiester bond creation
-      this.mgLight.intensity = 2.4 + Math.sin(timeSec * 24) * 1.0;
+      this.mgLight.intensity = 2.6 + Math.sin(timeSec * 24) * 1.2;
     }
 
     let reactionPhase: PolymeraseTelemetry['reactionPhase'] = 'Gắn kết dNTP';

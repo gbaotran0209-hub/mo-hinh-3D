@@ -68,7 +68,7 @@ export const CodonWheelModal: React.FC<CodonWheelModalProps> = ({ isOpen, onClos
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Tìm codon (ví dụ: AUG, UAA) hoặc axit amin..."
+              placeholder="Tìm codon (ví dụ: AUG, UAA) hoặc amino acid..."
               className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-cyan-400"
             />
           </div>
@@ -154,7 +154,7 @@ export const CodonWheelModal: React.FC<CodonWheelModalProps> = ({ isOpen, onClos
 
           {filteredCodons.length === 0 && (
             <div className="py-12 text-center text-slate-500 text-xs">
-              Không tìm thấy codon hoặc axit amin phù hợp với từ khóa "{searchTerm}".
+              Không tìm thấy codon hoặc amino acid phù hợp với từ khóa "{searchTerm}".
             </div>
           )}
         </div>
